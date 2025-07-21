@@ -40,7 +40,7 @@ fn main() -> bitcoincore_rpc::Result<()> {
     // Connect to Bitcoin Core RPC
     let rpc = Client::new(
         RPC_URL,
-        Auth::UserPass(RPC_USER.to_owned(), RPC_PASS.to_owned()),
+        Auth::UserPass(RPC_USER.into(), RPC_PASS.into())
     )?;
 
     // Get blockchain info
@@ -53,23 +53,23 @@ fn main() -> bitcoincore_rpc::Result<()> {
 
     let miner_rpc = Client::new(
         "http://127.0.0.1:18443/wallet/Miner",
-        Auth::UserPass(RPC_USER.to_string(), RPC_PASS.to_string()),
+        Auth::UserPass(RPC_USER.into(), RPC_PASS.into()),
     )?;
     let trader_rpc = Client::new(
         "http://127.0.0.1:18443/wallet/Trader",
-         Auth::UserPass(RPC_USER.to_string(), RPC_PASS.to_string()),
+         Auth::UserPass(RPC_USER.into(), RPC_PASS.into()),
     )?;
 
     // Generate spendable balances in the Miner wallet. How many blocks needs to be mined?
     let miner_mine_addr = miner_rpc
-    .get_new_address(None, None)?
+    .get_new_address("Mining Reward".into(), None)?
     .require_network(bitcoincore_rpc::bitcoin::Network::Regtest)
     .unwrap();
     rpc.generate_to_address(101, &miner_mine_addr)?;
 
     // Load Trader wallet and generate a new address
     let trader_address = trader_rpc
-    .get_new_address(None, None)?
+    .get_new_address("Received".into(), None)?
     .require_network(bitcoincore_rpc::bitcoin::Network::Regtest)
     .unwrap();
 
