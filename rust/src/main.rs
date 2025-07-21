@@ -1,16 +1,18 @@
 #![allow(unused)]
 use bitcoin::hex::DisplayHex;
-use bitcoincore_rpc::bitcoin::Amount;
+use bitcoin::sighash::Prevouts;
+use bitcoincore_rpc::bitcoin::{Amount, Address, Network};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use serde::Deserialize;
 use serde_json::json;
 use std::fs::File;
 use std::io::Write;
+use jsonrpc::Error;
 
 // Node access params
 const RPC_URL: &str = "http://127.0.0.1:18443"; // Default regtest RPC port
-const RPC_USER: &str = "alice";
-const RPC_PASS: &str = "password";
+const RPC_USER: &str = "bitcoinrpc";
+const RPC_PASS: &str = "securepassword";
 
 // You can use calls not provided in RPC lib API using the generic `call` function.
 // An example of using the `send` RPC call, which doesn't have exposed API.
@@ -59,19 +61,96 @@ fn main() -> bitcoincore_rpc::Result<()> {
     )?;
 
     // Generate spendable balances in the Miner wallet. How many blocks needs to be mined?
-    let miner_mine_addr = miner_rpc.
+    let miner_mine_addr = miner_rpc
+    .get_new_address(None, None)?
+    .require_network(bitcoincore_rpc::bitcoin::Network::Regtest)
+    .unwrap();
+    rpc.generate_to_address(101, &miner_mine_addr)?;
 
     // Load Trader wallet and generate a new address
+    let trader_address = trader_rpc
+    .get_new_address(None, None)?
+    .require_network(bitcoincore_rpc::bitcoin::Network::Regtest)
+    .unwrap();
 
     // Send 20 BTC from Miner to Trader
-
+    let amount_to_send = Amount::from_btc(20.0)?;
+    let txid = miner_rpc.send_to_address(
+        &trader_address,
+        amount_to_send,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None
+        )?;
     // Check transaction in mempool
+    let mempool = rpc.get_raw_mempool()?;
+    assert!(mempool.contains(&txid));
 
     // Mine 1 block to confirm the transaction
+    let blockhash = rpc.generate_to_address(1, &miner_mine_addr)?[0].clone();
+    let block_info = rpc.get_block_header_info(&blockhash)?;
+    let block_height = block_info.height;
 
     // Extract all required transaction details
+     let decoded = miner_rpc.get_raw_transaction(&txid, Some(&blockhash))?;
+      let tx_info = miner_rpc.get_transaction(&txid, Some(true))?;
+
+    let vin = &decoded.input[0];
+    let prev_txid = vin.previous_output.txid;
+    let prev_vout_index = vin.previous_output.vout;
+    let prev_tx = miner_rpc.get_raw_transaction(&prev_txid, Some(&blockhash))?;
+    let prev_vout = &prev_tx.output[vin.previous_output.vout as usize];
+    let miner_input_address = Address::from_script(prev_vout.script_pubkey.as_script(), Network::Regtest)
+        .expect("Unable to decode input script to address")
+        .to_string();
+    let miner_input_amount = prev_vout.value;
+
+    // Get output details
+    let mut trader_output_address = String::new();
+    let mut trader_output_amount = 0.0;
+    let mut miner_change_address = String::new();
+    let mut miner_change_amount = 0.0;
+
+ for out in decoded.output.iter() {
+    if let Ok(address) = Address::from_script(out.script_pubkey.as_script(), Network::Regtest) {
+        let addr_str = address.to_string();
+
+        if addr_str == trader_address.to_string() {
+            trader_output_address = addr_str;
+            trader_output_amount = out.value.to_btc();
+        } else {
+            miner_change_address = addr_str;
+            miner_change_amount = out.value.to_btc();
+        }
+    }
+}
+
+    let fee = miner_input_amount - Amount::from_btc(trader_output_amount + miner_change_amount)?;
 
     // Write the data to ../out.txt in the specified format given in readme.md
+    let mut file = File::create("../out.txt")?;
+    println!("{}", txid);
+    writeln!(file, "{}", txid)?;
+    writeln!(file, "{}", miner_input_address)?;
+    writeln!(file, "{:.8}", miner_input_amount)?;
+    writeln!(file, "{}", trader_output_address)?;
+    writeln!(file, "{:.8}", trader_output_amount)?;
+    writeln!(file, "{}", miner_change_address)?;
+    writeln!(file, "{:.8}", miner_change_amount)?;
+    writeln!(file, "{:.8}", fee)?;
+    writeln!(file, "{}", block_height)?;
+    writeln!(file, "{}", blockhash)?;
+
+    // Print balances
+let miner_balance = miner_rpc.get_balance(None, None)?;
+let trader_balance = trader_rpc.get_balance(None, None)?;
+
+println!("\n=== Wallet Balances ===");
+println!("Miner Balance: {:.8} BTC", miner_balance.to_btc());
+println!("Trader Balance: {:.8} BTC", trader_balance.to_btc());
 
     Ok(())
 }
