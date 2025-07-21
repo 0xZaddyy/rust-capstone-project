@@ -46,8 +46,20 @@ fn main() -> bitcoincore_rpc::Result<()> {
     println!("Blockchain Info: {:?}", blockchain_info);
 
     // Create/Load the wallets, named 'Miner' and 'Trader'. Have logic to optionally create/load them if they do not exist or not loaded already.
+    let _ = rpc.create_wallet("Miner", None, None, None, None);
+    let _ = rpc.create_wallet("Trader", None, None, None, None);
+
+    let miner_rpc = Client::new(
+        "http://127.0.0.1:18443/wallet/Miner",
+        Auth::UserPass(RPC_USER.to_string(), RPC_PASS.to_string()),
+    )?;
+    let trader_rpc = Client::new(
+        "http://127.0.0.1:18443/wallet/Trader",
+         Auth::UserPass(RPC_USER.to_string(), RPC_PASS.to_string()),
+    )?;
 
     // Generate spendable balances in the Miner wallet. How many blocks needs to be mined?
+    let miner_mine_addr = miner_rpc.
 
     // Load Trader wallet and generate a new address
 
