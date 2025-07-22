@@ -62,7 +62,15 @@ fn main() -> bitcoincore_rpc::Result<()> {
         .get_new_address("Mining Reward".into(), None)?
         .require_network(bitcoincore_rpc::bitcoin::Network::Regtest)
         .unwrap();
-    rpc.generate_to_address(101, &miner_mine_addr)?;
+    // Mine 101 blocks to mature coinbase transaction
+    let blocks = rpc.generate_to_address(101, &miner_mine_addr)?;
+
+    // Coinbase transactions require 100 confirmations before it can be spent
+    // 101 blocks was mined to ensure the reward can be available
+
+    // print Miner wallet balance
+    let miner_balance = miner_rpc.get_balance(None, None)?;
+    println!("Miner Balance: {:.8} BTC", miner_balance.to_btc());
 
     // Load Trader wallet and generate a new address
     let trader_address = trader_rpc
@@ -83,8 +91,8 @@ fn main() -> bitcoincore_rpc::Result<()> {
         None,
     )?;
     // Check transaction in mempool
-    let mempool = rpc.get_raw_mempool()?;
-    assert!(mempool.contains(&txid));
+    let mempool_entry = rpc.get_mempool_entry(&txid)?;
+    println!("Unconfirmed transaction: {mempool_entry:#?}");
 
     // Mine 1 block to confirm the transaction
     let blockhash = rpc.generate_to_address(1, &miner_mine_addr)?[0];
@@ -92,14 +100,15 @@ fn main() -> bitcoincore_rpc::Result<()> {
     let block_height = block_info.height;
 
     // Extract all required transaction details
-    let decoded = miner_rpc.get_raw_transaction(&txid, None)?;
     let tx_info = miner_rpc.get_transaction(&txid, Some(true))?;
+    let decoded = miner_rpc.get_raw_transaction(&txid, Some(&blockhash))?;
 
     let vin = &decoded.input[0];
     let prev_txid = vin.previous_output.txid;
     let prev_vout_index = vin.previous_output.vout;
-    let prev_tx = miner_rpc.get_raw_transaction(&prev_txid, Some(&blockhash))?;
-    let prev_vout = &prev_tx.output[vin.previous_output.vout as usize];
+    let prev_tx = miner_rpc.get_raw_transaction(&prev_txid, None)?;
+    let prev_vout = &prev_tx.output[prev_vout_index as usize];
+
     let miner_input_address =
         Address::from_script(prev_vout.script_pubkey.as_script(), Network::Regtest)
             .expect("Unable to decode input script to address")
