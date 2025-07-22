@@ -135,7 +135,8 @@ fn main() -> bitcoincore_rpc::Result<()> {
         }
     }
 
-    let fee = miner_input_amount - Amount::from_btc(trader_output_amount + miner_change_amount)?;
+    let total_out = ((trader_output_amount + miner_change_amount) * 1e8).round() / 1e8;
+    let fee = miner_input_amount - Amount::from_btc(total_out)?;
 
     // Write the data to ../out.txt in the specified format given in readme.md
     let mut file = File::create("../out.txt")?;
