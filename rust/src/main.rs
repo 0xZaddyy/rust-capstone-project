@@ -40,14 +40,15 @@ fn main() -> bitcoincore_rpc::Result<()> {
     // Connect to Bitcoin Core RPC
     let rpc = Client::new(RPC_URL, Auth::UserPass(RPC_USER.into(), RPC_PASS.into()))?;
 
-    // Get blockchain info
+    // Get general blockchain info
     let blockchain_info = rpc.get_blockchain_info()?;
     println!("Blockchain Info: {blockchain_info:?}");
 
-    // Create/Load the wallets, named 'Miner' and 'Trader'. Have logic to optionally create/load them if they do not exist or not loaded already.
+    // Create (or load if exists) 'Miner' and 'Trader' wallets
     let _ = rpc.create_wallet("Miner", None, None, None, None);
     let _ = rpc.create_wallet("Trader", None, None, None, None);
 
+    // Create wallet-specific RPC clients
     let miner_rpc = Client::new(
         "http://127.0.0.1:18443/wallet/Miner",
         Auth::UserPass(RPC_USER.into(), RPC_PASS.into()),
@@ -57,22 +58,21 @@ fn main() -> bitcoincore_rpc::Result<()> {
         Auth::UserPass(RPC_USER.into(), RPC_PASS.into()),
     )?;
 
-    // Generate spendable balances in the Miner wallet. How many blocks needs to be mined?
+    // Generate a mining address and mine 101 blocks for Miner (to mature coinbase)
     let miner_mine_addr = miner_rpc
         .get_new_address("Mining Reward".into(), None)?
         .require_network(bitcoincore_rpc::bitcoin::Network::Regtest)
         .unwrap();
-    // Mine 101 blocks to mature coinbase transaction
     let blocks = rpc.generate_to_address(101, &miner_mine_addr)?;
 
     // Coinbase transactions require 100 confirmations before it can be spent
     // 101 blocks was mined to ensure the reward can be available
 
-    // print Miner wallet balance
+    // Print Miner wallet balance after mining
     let miner_balance = miner_rpc.get_balance(None, None)?;
     println!("Miner Balance: {:.8} BTC", miner_balance.to_btc());
 
-    // Load Trader wallet and generate a new address
+    // Generate a receiving address in Trader wallet
     let trader_address = trader_rpc
         .get_new_address("Received".into(), None)?
         .require_network(bitcoincore_rpc::bitcoin::Network::Regtest)
@@ -90,7 +90,7 @@ fn main() -> bitcoincore_rpc::Result<()> {
         None,
         None,
     )?;
-    // Check transaction in mempool
+    // Print mempool info of the unconfirmed transaction
     let mempool_entry = rpc.get_mempool_entry(&txid)?;
     println!("Unconfirmed transaction: {mempool_entry:#?}");
 
@@ -99,10 +99,11 @@ fn main() -> bitcoincore_rpc::Result<()> {
     let block_info = rpc.get_block_header_info(&blockhash)?;
     let block_height = block_info.height;
 
-    // Extract all required transaction details
+    // Get full transaction info from wallet and node
     let tx_info = miner_rpc.get_transaction(&txid, Some(true))?;
     let decoded = miner_rpc.get_raw_transaction(&txid, Some(&blockhash))?;
 
+    // Get the input UTXO details (address and value)
     let vin = &decoded.input[0];
     let prev_txid = vin.previous_output.txid;
     let prev_vout_index = vin.previous_output.vout;
@@ -115,7 +116,7 @@ fn main() -> bitcoincore_rpc::Result<()> {
             .to_string();
     let miner_input_amount = prev_vout.value;
 
-    // Get output details
+    // Identify the output to Trader and the change output back to Miner
     let mut trader_output_address = String::new();
     let mut trader_output_amount = 0.0;
     let mut miner_change_address = String::new();
@@ -135,10 +136,11 @@ fn main() -> bitcoincore_rpc::Result<()> {
         }
     }
 
+    // Calculate total output and transaction fee
     let total_out = ((trader_output_amount + miner_change_amount) * 1e8).round() / 1e8;
     let fee = miner_input_amount - Amount::from_btc(total_out)?;
 
-    // Write the data to ../out.txt in the specified format given in readme.md
+    // Write the required data to ../out.txt
     let mut file = File::create("../out.txt")?;
     println!("{txid}");
     writeln!(file, "{txid}")?;
@@ -152,7 +154,7 @@ fn main() -> bitcoincore_rpc::Result<()> {
     writeln!(file, "{block_height}")?;
     writeln!(file, "{blockhash}")?;
 
-    // Print balances
+    // Print wallet balances after transaction
     let miner_balance = miner_rpc.get_balance(None, None)?;
     let trader_balance = trader_rpc.get_balance(None, None)?;
 
